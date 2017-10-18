@@ -18,16 +18,13 @@ namespace Helpers
         public Mock<HttpServerUtilityBase> Server { get; private set; }
         public OwinContext OwinContext { get; private set; }
 
-        public MvcMockHelper(Controller controller, RouteCollection routes = null)
+        public MvcMockHelper()
         {
             HttpContext = new Mock<HttpContextBase>();
             Request = new Mock<HttpRequestBase>();
             Response = new Mock<HttpResponseBase>();
             Session = new Mock<HttpSessionStateBase>();
             Server = new Mock<HttpServerUtilityBase>();
-            var items = new Dictionary<string, object>();
-
-            var urlHelper = new Mock<UrlHelper>();
 
             HttpContext.Setup(ctx => ctx.Request).Returns(Request.Object);
             HttpContext.Setup(ctx => ctx.Request.Url).Returns(new Uri("http://TestUrl/"));
@@ -35,27 +32,34 @@ namespace Helpers
             HttpContext.Setup(ctx => ctx.Session).Returns(Session.Object);
             HttpContext.SetupGet(x => x.Response.Cookies).Returns(new HttpCookieCollection());
             HttpContext.Setup(ctx => ctx.Server).Returns(Server.Object);
-            HttpContext.Setup(ctx => ctx.Items).Returns(items);
+            HttpContext.Setup(ctx => ctx.Items).Returns(new Dictionary<string, object>());
+        }
 
+        public MvcMockHelper For(Controller controller)
+        {
             ControllerContext context = new ControllerContext(new RequestContext(HttpContext.Object, new RouteData()), controller);
             controller.ControllerContext = context;
 
+            var urlHelper = new Mock<UrlHelper>();
             urlHelper.Setup(x => x.Action(It.IsAny<string>(), It.IsAny<string>(), null, It.IsAny<string>())).Returns("");
-
             controller.Url = urlHelper.Object;
 
             OwinContext = new OwinContext();
             controller.HttpContext.Items["owin.Environment"] = OwinContext.Environment;
+
+            return this;
         }
 
-        public void SetHttpMethodResult(string httpMethod)
+        public MvcMockHelper SetHttpMethodResult(string httpMethod)
         {
             Request
                 .Setup(req => req.HttpMethod)
                 .Returns(httpMethod);
+
+            return this;
         }
 
-        public void SetupRequestUrl(string url)
+        public MvcMockHelper SetupRequestUrl(string url)
         {
             if (url == null)
                 throw new ArgumentNullException("url");
@@ -71,6 +75,8 @@ namespace Helpers
                 .Returns(GetUrlFileName(url));
             mock.Setup(req => req.PathInfo)
                 .Returns(string.Empty);
+
+            return this;
         }
 
         static string GetUrlFileName(string url)
