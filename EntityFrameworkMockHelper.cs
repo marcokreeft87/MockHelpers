@@ -22,6 +22,19 @@ namespace Helpers
             instance.MockTables();
             return instance;
         }
+        
+        /// <summary>
+        /// Returns a mock of a DbContext
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <returns></returns>
+        public static MockedDbContext<T> GetMockContext<T>(params object[] args) where T : DbContext
+        {
+            var instance = new MockedDbContext<T>(args);
+            instance.MockTables();
+
+            return instance;
+        }
 
         public static MockedIdentityDbContext<T, TU> GetIdentityMockContext<T, TU>() where T : IdentityDbContext<TU> where TU : IdentityUser
         {
@@ -36,8 +49,9 @@ namespace Helpers
         /// </summary>
         /// <typeparam name="T">The table data type</typeparam>
         /// <param name="table">A List{T} that is being use to replace a database table.</param>
+        /// <param name="context">The mockedcontext.</param>
         /// <returns></returns>
-        public static DbSet<T> MockDbSet<T>(List<T> table) where T : class
+        public static DbSet<T> MockDbSet<T>(List<T> table, MockedDbContext<U> context) where T : class
         {
             var dbSet = new Mock<DbSet<T>>();
             dbSet.As<IQueryable<T>>().Setup(q => q.Provider).Returns(new TestDbAsyncQueryProvider<T>(table.AsQueryable().Provider)); 
@@ -49,8 +63,16 @@ namespace Helpers
 
             dbSet.Setup(q => q.AsNoTracking()).Returns(dbSet.Object);
             dbSet.Setup(set => set.Include(It.IsAny<string>())).Returns(dbSet.Object); // support .Include() extension
-            dbSet.Setup(set => set.Add(It.IsAny<T>())).Callback<T>(table.Add);
-            dbSet.Setup(set => set.AddRange(It.IsAny<IEnumerable<T>>())).Callback<IEnumerable<T>>(table.AddRange);
+            dbSet.Setup(set => set.Add(It.IsAny<T>())).Callback<T>((x) =>
+            {
+                table.Add(x);
+                local.Add(x);
+            }).Returns((T x) => x);
+            dbSet.Setup(set => set.AddRange(It.IsAny<IEnumerable<T>>())).Callback<IEnumerable<T>>((x) =>
+            {
+                table.AddRange(x);
+                x.ForEach(local.Add);
+            }).Returns((IEnumerable<T> x) => x);
             dbSet.Setup(set => set.Remove(It.IsAny<T>())).Callback<T>(t => table.Remove(t));
             dbSet.Setup(set => set.RemoveRange(It.IsAny<IEnumerable<T>>())).Callback<IEnumerable<T>>(ts =>
             {
@@ -94,17 +116,21 @@ namespace Helpers
         public static void MockTables<T>(this MockedDbContext<T> mockedContext) where T : DbContext
         {
             Type contextType = typeof(T);
-            var dbSetProperties = contextType.GetProperties().Where(prop => (prop.PropertyType.IsGenericType) && prop.PropertyType.GetGenericTypeDefinition() == typeof(DbSet<>));
+            var dbSetProperties = contextType.GetProperties().Where(prop =>
+                (prop.PropertyType.IsGenericType) && prop.PropertyType.GetGenericTypeDefinition() == typeof(DbSet<>));
+
             foreach (var prop in dbSetProperties)
             {
                 var dbSetGenericType = prop.PropertyType.GetGenericArguments()[0];
+                var dbContextGenericType = mockedContext.GetType().GetGenericArguments()[0];
+
                 Type listType = typeof(List<>).MakeGenericType(dbSetGenericType);
                 var listForFakeTable = Activator.CreateInstance(listType);
                 var parameter = Expression.Parameter(contextType);
                 var body = Expression.PropertyOrField(parameter, prop.Name);
                 var lambdaExpression = Expression.Lambda<Func<T, object>>(body, parameter);
-                var method = typeof(EntityFrameworkMockHelper).GetMethod("MockDbSet").MakeGenericMethod(dbSetGenericType);
-                mockedContext.Setup(lambdaExpression).Returns(method.Invoke(null, new[] { listForFakeTable }));
+                var method = typeof(EntityFrameworkMockHelper).GetMethod("MockDbSet").MakeGenericMethod(dbSetGenericType, dbContextGenericType);
+                mockedContext.Setup(lambdaExpression).Returns(method.Invoke(null, new[] {listForFakeTable, mockedContext}));
                 mockedContext.Tables.Add(prop.Name, listForFakeTable);
             }
         }
@@ -116,13 +142,15 @@ namespace Helpers
             foreach (var prop in dbSetProperties)
             {
                 var dbSetGenericType = prop.PropertyType.GetGenericArguments()[0];
+                var dbContextGenericType = mockedContext.GetType().GetGenericArguments()[0];
+
                 Type listType = typeof(List<>).MakeGenericType(dbSetGenericType);
                 var listForFakeTable = Activator.CreateInstance(listType);
                 var parameter = Expression.Parameter(contextType);
                 var body = Expression.PropertyOrField(parameter, prop.Name);
                 var lambdaExpression = Expression.Lambda<Func<T, object>>(body, parameter);
-                var method = typeof(EntityFrameworkMockHelper).GetMethod("MockDbSet").MakeGenericMethod(dbSetGenericType);
-                mockedContext.Setup(lambdaExpression).Returns(method.Invoke(null, new[] { listForFakeTable }));
+                var method = typeof(EntityFrameworkMockHelper).GetMethod("MockDbSet").MakeGenericMethod(dbSetGenericType, dbContextGenericType);
+                mockedContext.Setup(lambdaExpression).Returns(method.Invoke(null, new[] {listForFakeTable, mockedContext}));
                 mockedContext.Tables.Add(prop.Name, listForFakeTable);
             }
         }
