@@ -93,15 +93,16 @@ namespace Helpers
         /// <returns></returns>
         private static T MockFind<T>(int id, IEnumerable<object> table)
         {
-            T result = default(T);
+            TEntity result = default(TEntity);
             foreach (var e in table)
             {
                 Type type = e.GetType();
-                var idProperty = type.GetProperty("Id");
-                var value = (int)idProperty.GetValue(e);
-                if (value == id)
+                var pkProperty = type.GetProperties().FirstOrDefault(x => x.CustomAttributes.Any(c => c.AttributeType.Name == "KeyAttribute"));
+                var value = pkProperty.GetValue(e);
+                var convertedValue = Convert.ChangeType(value, id.GetType());
+                if (convertedValue.Equals(id))
                 {
-                    result = (T) e;
+                    result = (TEntity)e;
                     break;
                 }
             }
